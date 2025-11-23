@@ -86,3 +86,4 @@ The **TP-Link Omada Controller** is a centralized management platform for Omada 
 - **Disk**: 16GB+ (for logs and database growth)
 - **Network**: Static IP on LAN
 
+

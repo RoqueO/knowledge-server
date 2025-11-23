@@ -35,9 +35,8 @@ graph TB
                 end
             end
 
-            subgraph DownloadLXC["Download LXCs (VLAN 20)"]
-                 qBitLXC[qBittorrent LXC<br/>192.168.2.20<br/>VLAN 20]
-                 SABLXC[SABnzbd LXC<br/>192.168.2.21<br/>VLAN 20]
+            subgraph DownloadLXC["Download LXC (VLAN 20)"]
+                 DownloadLXC_Container[Download Clients LXC<br/>192.168.2.20<br/>qBittorrent: 8080<br/>SABnzbd: 8081<br/>VLAN 20]
             end
         end
     end
@@ -55,8 +54,7 @@ graph TB
     vmbr0 --> JellyfinLXC
     vmbr0 --> IF1
     
-    vmbr0_20 --> qBitLXC
-    vmbr0_20 --> SABLXC
+    vmbr0_20 --> DownloadLXC_Container
     
     IF1 --> DockerNetLAN
     
@@ -87,8 +85,7 @@ flowchart TB
     end
     
     subgraph VLAN20_Services["VLAN 20 Services (192.168.2.0/24)"]
-        qBit[qBittorrent LXC: 192.168.2.20]
-        SAB[SABnzbd LXC: 192.168.2.21]
+        DownloadClients[Download Clients LXC: 192.168.2.20<br/>qBittorrent: 8080<br/>SABnzbd: 8081]
     end
     
     subgraph DockerApps["Docker Apps (on ArrStack VM)"]
@@ -105,8 +102,7 @@ flowchart TB
     LAN_IF -->|Reverse Proxy| Nginx
     LAN_IF -->|Direct Access| Jellyfin
     LAN_IF -->|Direct Access| ArrStack
-    VLAN20_IF -->|Isolated Network| qBit
-    VLAN20_IF -->|Isolated Network| SAB
+    VLAN20_IF -->|Isolated Network| DownloadClients
     
     Nginx -->|Proxy| Jellyfin
     Nginx -->|Proxy| ArrStack
@@ -114,10 +110,8 @@ flowchart TB
     ArrStack -->|Host Port| Sonarr
     ArrStack -->|Host Port| Prowlarr
     
-    Radarr -.->|Inter-VLAN Routing| qBit
-    Sonarr -.->|Inter-VLAN Routing| SAB
-    Radarr -.->|Inter-VLAN Routing| SAB
-    Sonarr -.->|Inter-VLAN Routing| qBit
+    Radarr -.->|Inter-VLAN Routing| DownloadClients
+    Sonarr -.->|Inter-VLAN Routing| DownloadClients
 ```
 
 ## IP Address Assignments
@@ -137,8 +131,7 @@ flowchart TB
 | Device/Service | IP Address | Type | Notes |
 |----------------|------------|------|-------|
 | pfSense (VLAN 20) | 192.168.2.1 | VM | VLAN 20 Gateway |
-| qBittorrent LXC | 192.168.2.20 | LXC | Download Client |
-| SABnzbd LXC | 192.168.2.21 | LXC | Download Client |
+| Download Clients LXC | 192.168.2.20 | LXC | qBittorrent (8080) & SABnzbd (8081) |
 
 ## Internal DNS Configuration
 
@@ -167,8 +160,9 @@ Add the following host entries:
 | radarr | eclipsehome.lan | 192.168.1.20 | Radarr (on ArrStack VM) |
 | sonarr | eclipsehome.lan | 192.168.1.20 | Sonarr (on ArrStack VM) |
 | prowlarr | eclipsehome.lan | 192.168.1.20 | Prowlarr (on ArrStack VM) |
-| qbittorrent | eclipsehome.lan | 192.168.2.20 | qBittorrent LXC (VLAN 20) |
-| sabnzbd | eclipsehome.lan | 192.168.2.21 | SABnzbd LXC (VLAN 20) |
+| download-clients | eclipsehome.lan | 192.168.2.20 | Download Clients LXC (VLAN 20) |
+| qbittorrent | eclipsehome.lan | 192.168.2.20 | qBittorrent (VLAN 20, port 8080) |
+| sabnzbd | eclipsehome.lan | 192.168.2.20 | SABnzbd (VLAN 20, port 8081) |
 
 ### Internal Service Access URLs
 
@@ -180,8 +174,8 @@ Add the following host entries:
 - **Nginx**: `http://nginx.eclipsehome.lan` (ports 80/443)
 
 **VLAN 20 Services:**
-- **qBittorrent**: `http://qbittorrent.eclipsehome.lan:8080`
-- **SABnzbd**: `http://sabnzbd.eclipsehome.lan:8080` or `https://sabnzbd.eclipsehome.lan:9090`
+- **qBittorrent**: `http://qbittorrent.eclipsehome.lan:8080` or `http://download-clients.eclipsehome.lan:8080`
+- **SABnzbd**: `http://sabnzbd.eclipsehome.lan:8081` or `http://download-clients.eclipsehome.lan:8081`
 
 **Infrastructure:**
 - **pfSense**: `https://pfsense.eclipsehome.lan`
@@ -218,13 +212,13 @@ ping radarr.eclipsehome.lan
 | Jellyfin | 8096 | HTTP | http://jellyfin.eclipsehome.lan:8096 |
 | Nginx | 80, 443 | HTTP/HTTPS | http://nginx.eclipsehome.lan |
 
-### VLAN 20 Services (LXC Containers)
+### VLAN 20 Services (LXC Container)
 
 | Service | Port | Protocol | Access |
 |---------|------|----------|--------|
 | qBittorrent | 8080 | HTTP | http://qbittorrent.eclipsehome.lan:8080 |
-| SABnzbd | 8080 | HTTP | http://sabnzbd.eclipsehome.lan:8080 |
-| SABnzbd (HTTPS) | 9090 | HTTPS | https://sabnzbd.eclipsehome.lan:9090 |
+| SABnzbd | 8081 | HTTP | http://sabnzbd.eclipsehome.lan:8081 |
+| SABnzbd (HTTPS) | 9090 | HTTPS | https://sabnzbd.eclipsehome.lan:9090 (optional) |
 
 ## pfSense Configuration
 
@@ -258,9 +252,9 @@ ping radarr.eclipsehome.lan
 - **Allow LAN to Downloaders**:
     - **Action**: Pass
     - **Source**: LAN Net (or ArrStack VM IP 192.168.1.20)
-    - **Destination**: VLAN 20 Net (or qBit/SAB IPs)
-    - **Ports**: 8080, 8090, 9090 (WebUI/API ports)
-    - *Purpose: Allows Radarr/Sonarr to control download clients.*
+    - **Destination**: 192.168.2.20 (Download Clients LXC)
+    - **Ports**: 8080 (qBittorrent), 8081 (SABnzbd)
+    - *Purpose: Allows Radarr/Sonarr to control download clients via API.*
 
 **Specific Rules:**
 - Allow inbound HTTP (80) to Nginx (192.168.1.11)
@@ -299,10 +293,10 @@ ping radarr.eclipsehome.lan
 - **Tag**: None (Default LAN)
 - **Result**: Single interface (ens18) on LAN.
 
-**qBittorrent & SABnzbd LXCs**:
+**Download Clients LXC**:
 - **Bridge**: vmbr0
 - **Tag**: 20
-- **Result**: Single interface on VLAN 20.
+- **Result**: Single interface on VLAN 20 (hosts both qBittorrent and SABnzbd).
 
 ## Docker Network Architecture (ArrStack VM)
 
@@ -319,10 +313,11 @@ Since we are moving qBittorrent and SABnzbd to dedicated LXC containers on VLAN 
 ```bash
 # From ArrStack VM
 ping 192.168.1.1    # pfSense LAN
-ping 192.168.2.20   # qBittorrent LXC (Should work if Firewall rule exists)
-curl http://192.168.2.20:8080 # Check WebUI of qBit via API port
+ping 192.168.2.20   # Download Clients LXC (Should work if Firewall rule exists)
+curl http://192.168.2.20:8080 # Check WebUI of qBittorrent via API port
+curl http://192.168.2.20:8081 # Check WebUI of SABnzbd via API port
 
-# From qBittorrent LXC
+# From Download Clients LXC
 ping 192.168.2.1    # pfSense VLAN 20 Gateway
 ping 8.8.8.8        # Internet Check
 ping 192.168.1.20   # ArrStack VM (Should FAIL due to Block rule)
@@ -331,9 +326,9 @@ ping 192.168.1.20   # ArrStack VM (Should FAIL due to Block rule)
 ### Verify Firewall Rules
 
 1. **LAN -> VLAN 20**: Should **PASS**.
-   - From ArrStack VM, try to open qBittorrent WebUI.
+   - From ArrStack VM, try to open qBittorrent or SABnzbd WebUI.
 2. **VLAN 20 -> LAN**: Should **BLOCK**.
-   - From qBittorrent LXC console, try to SSH to ArrStack VM or ping it.
+   - From Download Clients LXC console, try to SSH to ArrStack VM or ping it.
 
 ## VLAN 20 Configuration Summary
 
@@ -343,7 +338,7 @@ VLAN 20 isolates download services (qBittorrent and SABnzbd) from the main LAN n
 ### Network Components
 - **pfSense**: VLAN 20 interface at 192.168.2.1.
 - **Proxmox**: VLAN-aware bridge (vmbr0).
-- **Download LXCs**: Connected to vmbr0 with Tag 20.
+- **Download Clients LXC**: Single container connected to vmbr0 with Tag 20, hosting both qBittorrent and SABnzbd.
 - **ArrStack VM**: On LAN, communicates via routing.
 
 ### Access Pattern

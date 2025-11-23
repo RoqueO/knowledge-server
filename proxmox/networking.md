@@ -140,23 +140,91 @@ flowchart TB
 | qBittorrent LXC | 192.168.2.20 | LXC | Download Client |
 | SABnzbd LXC | 192.168.2.21 | LXC | Download Client |
 
+## Internal DNS Configuration
+
+### Domain Setup: eclipsehome.lan
+
+All internal services use the `.lan` domain for easy name-based access. DNS resolution is handled by pfSense's Unbound DNS resolver.
+
+### pfSense Unbound DNS Configuration
+
+**Services → DNS Resolver → General Settings:**
+1. Enable DNS resolver
+2. Enable "Register DHCP leases in DNS" (optional, for automatic device registration)
+3. Set "Domain" to `eclipsehome.lan` (optional, for shorter hostnames)
+
+**Services → DNS Resolver → Host Overrides:**
+
+Add the following host entries:
+
+| Hostname | Domain | IP Address | Description |
+|----------|--------|------------|-------------|
+| pfsense | eclipsehome.lan | 192.168.1.1 | pfSense Router/Gateway |
+| proxmox | eclipsehome.lan | 192.168.1.10 | Proxmox Host |
+| nginx | eclipsehome.lan | 192.168.1.11 | Nginx Reverse Proxy |
+| jellyfin | eclipsehome.lan | 192.168.1.12 | Jellyfin Media Server |
+| arrstack | eclipsehome.lan | 192.168.1.20 | ArrStack VM (Docker Host) |
+| radarr | eclipsehome.lan | 192.168.1.20 | Radarr (on ArrStack VM) |
+| sonarr | eclipsehome.lan | 192.168.1.20 | Sonarr (on ArrStack VM) |
+| prowlarr | eclipsehome.lan | 192.168.1.20 | Prowlarr (on ArrStack VM) |
+| qbittorrent | eclipsehome.lan | 192.168.2.20 | qBittorrent LXC (VLAN 20) |
+| sabnzbd | eclipsehome.lan | 192.168.2.21 | SABnzbd LXC (VLAN 20) |
+
+### Internal Service Access URLs
+
+**LAN Services:**
+- **Radarr**: `http://radarr.eclipsehome.lan:7878`
+- **Sonarr**: `http://sonarr.eclipsehome.lan:8989`
+- **Prowlarr**: `http://prowlarr.eclipsehome.lan:9696`
+- **Jellyfin**: `http://jellyfin.eclipsehome.lan:8096`
+- **Nginx**: `http://nginx.eclipsehome.lan` (ports 80/443)
+
+**VLAN 20 Services:**
+- **qBittorrent**: `http://qbittorrent.eclipsehome.lan:8080`
+- **SABnzbd**: `http://sabnzbd.eclipsehome.lan:8080` or `https://sabnzbd.eclipsehome.lan:9090`
+
+**Infrastructure:**
+- **pfSense**: `https://pfsense.eclipsehome.lan`
+- **Proxmox**: `https://proxmox.eclipsehome.lan:8006`
+
+### DNS Testing
+
+After configuring DNS entries, verify resolution:
+
+```bash
+# From any device on the network
+nslookup radarr.eclipsehome.lan
+ping radarr.eclipsehome.lan
+
+# Should resolve to 192.168.1.20
+```
+
+**Note:** Since Radarr, Sonarr, and Prowlarr all run on the same VM (192.168.1.20), they share the same IP but use different ports. The DNS entry points to the VM IP, and you access each service via its specific port.
+
 ## Port Mappings
 
 ### LAN Services (ArrStack VM)
 
 | Service | Port | Protocol | Access |
 |---------|------|----------|--------|
-| Radarr | 7878 | HTTP | http://192.168.1.20:7878 |
-| Sonarr | 8989 | HTTP | http://192.168.1.20:8989 |
-| Prowlarr | 9696 | HTTP | http://192.168.1.20:9696 |
+| Radarr | 7878 | HTTP | http://radarr.eclipsehome.lan:7878 |
+| Sonarr | 8989 | HTTP | http://sonarr.eclipsehome.lan:8989 |
+| Prowlarr | 9696 | HTTP | http://prowlarr.eclipsehome.lan:9696 |
+
+### LAN Services (Other)
+
+| Service | Port | Protocol | Access |
+|---------|------|----------|--------|
+| Jellyfin | 8096 | HTTP | http://jellyfin.eclipsehome.lan:8096 |
+| Nginx | 80, 443 | HTTP/HTTPS | http://nginx.eclipsehome.lan |
 
 ### VLAN 20 Services (LXC Containers)
 
 | Service | Port | Protocol | Access |
 |---------|------|----------|--------|
-| qBittorrent | 8080 | HTTP | http://192.168.2.20:8080 |
-| SABnzbd | 8080 | HTTP | http://192.168.2.21:8080 |
-| SABnzbd (HTTPS) | 9090 | HTTPS | https://192.168.2.21:9090 |
+| qBittorrent | 8080 | HTTP | http://qbittorrent.eclipsehome.lan:8080 |
+| SABnzbd | 8080 | HTTP | http://sabnzbd.eclipsehome.lan:8080 |
+| SABnzbd (HTTPS) | 9090 | HTTPS | https://sabnzbd.eclipsehome.lan:9090 |
 
 ## pfSense Configuration
 

@@ -4,14 +4,14 @@ This document details the creation and configuration of an LXC container for qBi
 
 ## Overview
 
-We'll create a single LXC container running Debian 12 to host both qBittorrent (BitTorrent client) and SABnzbd (Usenet client). The container is connected to VLAN 20 (192.168.2.0/24) and communicates with the ARR stack (Radarr, Sonarr) on the LAN network via pfSense routing.
+We'll create a single LXC container running Debian 12 to host both qBittorrent (BitTorrent client) and SABnzbd (Usenet client). The container is connected to VLAN 20 (192.168.3.0/24) and communicates with the ARR stack (Radarr, Sonarr) on the LAN network via pfSense routing.
 
 ## Prerequisites
 
 - Proxmox server with LXC support enabled
 - Access to Proxmox web interface
 - Debian 12 template downloaded (if not already available)
-- VLAN 20 configured on pfSense (192.168.2.0/24)
+- VLAN 20 configured on pfSense (192.168.3.0/24)
 - VLAN-aware bridge (vmbr0) configured on Proxmox
 - Host storage paths for downloads (incomplete and completed folders)
 
@@ -54,15 +54,15 @@ If you don't already have a Debian 12 template:
 - **Swap**: `1024` MB (recommended for download operations)
 
 ### Network Tab
-- **IPv4/CIDR**: `192.168.2.20/24`
-- **Gateway (IPv4)**: `192.168.2.1` (pfSense VLAN 20 interface)
+- **IPv4/CIDR**: `192.168.3.20/24`
+- **Gateway (IPv4)**: `192.168.3.1` (pfSense VLAN 20 interface)
 - **Bridge**: `vmbr0` (your main bridge)
 - **VLAN Tag**: `20` (critical - this connects to VLAN 20)
 - **Firewall**: Enable if you want Proxmox firewall rules (pfSense handles most rules)
 
 ### DNS Tab
 - **DNS Domain**: Leave empty or use your domain
-- **DNS Server**: `192.168.2.1` (pfSense VLAN 20) or `8.8.8.8` (Google DNS)
+- **DNS Server**: `192.168.3.1` (pfSense VLAN 20) or `8.8.8.8` (Google DNS)
 
 ### Confirm Tab
 - Review all settings
@@ -133,7 +133,7 @@ Before starting the container, configure bind mounts to share host storage:
 6. **Verify network connectivity**:
    ```bash
    ping -c 4 8.8.8.8
-   ping -c 4 192.168.2.1  # Should reach pfSense VLAN 20 gateway
+   ping -c 4 192.168.3.1  # Should reach pfSense VLAN 20 gateway
    ```
 
 7. **Verify bind mounts**:
@@ -189,12 +189,26 @@ systemctl start qbittorrent-nox
 
 ### Initial Configuration
 
-1. **Access WebUI**: Open a browser and navigate to `http://192.168.2.20:8080`
+1. **Access WebUI**: Open a browser and navigate to `http://192.168.3.20:8080`
 
 2. **First-time setup**:
    - Default username: `admin`
-   - Default password: `adminadmin`
-   - **Change these immediately!**
+   - Default password: qBittorrent generates a random password on first start
+   - **Find the password in the logs**:
+     ```bash
+     # Check systemd journal for the password
+     journalctl -u qbittorrent-nox | grep -i password
+     
+     # Or view recent logs
+     journalctl -u qbittorrent-nox -n 100
+     
+     # The password will be displayed in the startup log output
+     ```
+   - **Alternative**: Check qBittorrent log file (if running as root):
+     ```bash
+     cat /root/.local/share/qBittorrent/logs/*.log | grep -i password
+     ```
+   - **Change these immediately after first login!**
 
 3. **Configure qBittorrent** (WebUI → Options):
 
@@ -245,67 +259,53 @@ systemctl start qbittorrent-nox
 
 ### Install Python and Dependencies
 
-SABnzbd requires Python 3:
+SABnzbd requires Python 3 (included as a dependency):
 
 ```bash
-apt install -y python3 python3-pip python3-dev python3-setuptools python3-wheel
+apt install -y python3
 ```
 
 ### Install SABnzbd
 
-Install SABnzbd using pip:
+Install SABnzbd using the Debian package:
 
 ```bash
-pip3 install --upgrade pip
-pip3 install sabnzbd
+apt install -y sabnzbdplus
 ```
 
-### Create Systemd Service
+**Note**: The `sabnzbdplus` package is the official Debian package for SABnzbd. It handles all dependencies automatically, includes a systemd service, and integrates with the system package manager.
 
-Create a systemd service file for SABnzbd:
+### Enable and Start Systemd Service
+
+The Debian package includes a systemd service. Enable and start it:
 
 ```bash
-nano /etc/systemd/system/sabnzbd.service
+systemctl enable sabnzbdplus
+systemctl start sabnzbdplus
 ```
 
-Add the following content:
-
-```ini
-[Unit]
-Description=SABnzbd service
-After=network.target
-
-[Service]
-Type=simple
-User=root
-ExecStart=/usr/local/bin/sabnzbd --browser 0 --server 0.0.0.0:8081
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Enable and start the service:
+**Note**: The service is named `sabnzbdplus` and is included with the package. If you need to modify the service configuration (e.g., change the port or add startup options), you can override it by creating a systemd override:
 
 ```bash
-systemctl daemon-reload
-systemctl enable sabnzbd
-systemctl start sabnzbd
+systemctl edit sabnzbdplus
 ```
+
+This will create an override file at `/etc/systemd/system/sabnzbdplus.service.d/override.conf` where you can add custom ExecStart options.
 
 ### Initial Configuration
 
-1. **Access WebUI**: Open a browser and navigate to `http://192.168.2.20:8081`
+1. **Access WebUI**: Open a browser and navigate to `http://192.168.3.20:8081`
 
 2. **First-time setup wizard**:
    - Follow the setup wizard
    - **Language**: Select your preferred language
-   - **Username**: Set a secure username
+   - **Username**: Set a secure username (required for initial setup)
    - **Password**: Set a secure password
    - **Port**: `8081`
    - **HTTPS Port**: `9090` (optional, for HTTPS access)
    - **Click "Test Server"** and continue
+   
+   **Important**: You must configure a username during the initial setup wizard. This is required to complete the configuration.
 
 3. **Configure SABnzbd** (WebUI → Config):
 
@@ -341,15 +341,174 @@ systemctl start sabnzbd
 
 6. **Restart SABnzbd**:
    ```bash
-   systemctl restart sabnzbd
+   systemctl restart sabnzbdplus
    ```
 
 7. **Verify service**:
    ```bash
-   systemctl status sabnzbd
+   systemctl status sabnzbdplus
    ```
 
-## Step 7: Configure pfSense Firewall Rules
+## Step 7: Set Up Automatic Updates
+
+Configure automatic weekly updates for both qBittorrent and SABnzbd to ensure you're always running the latest versions with security patches and bug fixes.
+
+### Create Update Script
+
+Create a script that will update both services:
+
+```bash
+nano /usr/local/bin/update-download-clients.sh
+```
+
+Add the following content:
+
+```bash
+#!/bin/bash
+# Update script for qBittorrent and SABnzbd
+# This script updates both services and restarts them if updates are available
+
+LOG_FILE="/var/log/download-clients-update.log"
+DATE=$(date '+%Y-%m-%d %H:%M:%S')
+
+echo "[$DATE] Starting download clients update check..." >> "$LOG_FILE"
+
+# Update qBittorrent (installed via apt)
+echo "[$DATE] Checking for qBittorrent updates..." >> "$LOG_FILE"
+apt update >> "$LOG_FILE" 2>&1
+QB_UPGRADE_OUTPUT=$(apt list --upgradable 2>/dev/null | grep -i qbittorrent)
+if [ -n "$QB_UPGRADE_OUTPUT" ]; then
+    echo "[$DATE] qBittorrent update available. Upgrading..." >> "$LOG_FILE"
+    apt upgrade -y qbittorrent-nox >> "$LOG_FILE" 2>&1
+    echo "[$DATE] Restarting qBittorrent service..." >> "$LOG_FILE"
+    systemctl restart qbittorrent-nox
+    echo "[$DATE] qBittorrent updated and restarted" >> "$LOG_FILE"
+else
+    echo "[$DATE] qBittorrent is up to date" >> "$LOG_FILE"
+fi
+
+# Update SABnzbd (installed via apt)
+echo "[$DATE] Checking for SABnzbd updates..." >> "$LOG_FILE"
+# Get current version
+CURRENT_VERSION=$(dpkg -s sabnzbdplus 2>/dev/null | grep Version | awk '{print $2}')
+# Check for updates
+apt update >> "$LOG_FILE" 2>&1
+SAB_UPGRADE_OUTPUT=$(apt list --upgradable 2>/dev/null | grep -i sabnzbdplus)
+if [ -n "$SAB_UPGRADE_OUTPUT" ]; then
+    echo "[$DATE] SABnzbd update available. Upgrading..." >> "$LOG_FILE"
+    apt upgrade -y sabnzbdplus >> "$LOG_FILE" 2>&1
+    echo "[$DATE] Restarting SABnzbd service..." >> "$LOG_FILE"
+    systemctl restart sabnzbdplus
+    echo "[$DATE] SABnzbd updated and restarted" >> "$LOG_FILE"
+else
+    echo "[$DATE] SABnzbd is up to date (version: $CURRENT_VERSION)" >> "$LOG_FILE"
+fi
+
+echo "[$DATE] Update check completed" >> "$LOG_FILE"
+```
+
+Make the script executable:
+
+```bash
+chmod +x /usr/local/bin/update-download-clients.sh
+```
+
+### Create Systemd Service
+
+Create a systemd service file for the update script:
+
+```bash
+nano /etc/systemd/system/update-download-clients.service
+```
+
+Add the following content:
+
+```ini
+[Unit]
+Description=Update qBittorrent and SABnzbd
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/update-download-clients.sh
+StandardOutput=journal
+StandardError=journal
+```
+
+### Create Systemd Timer
+
+Create a systemd timer that runs the update script weekly:
+
+```bash
+nano /etc/systemd/system/update-download-clients.timer
+```
+
+Add the following content:
+
+```ini
+[Unit]
+Description=Weekly update timer for download clients
+Requires=update-download-clients.service
+
+[Timer]
+# Run every Monday at 3:00 AM
+OnCalendar=Mon *-*-* 03:00:00
+# Run immediately if missed (e.g., container was off)
+Persistent=true
+# Randomize start time by up to 30 minutes to avoid system load spikes
+RandomizedDelaySec=30m
+
+[Install]
+WantedBy=timers.target
+```
+
+Enable and start the timer:
+
+```bash
+systemctl daemon-reload
+systemctl enable update-download-clients.timer
+systemctl start update-download-clients.timer
+```
+
+### Verify Timer Setup
+
+Check that the timer is active and scheduled:
+
+```bash
+# Check timer status
+systemctl status update-download-clients.timer
+
+# List all timers to see when it will run next
+systemctl list-timers update-download-clients.timer
+```
+
+### Manual Update
+
+You can manually trigger an update at any time:
+
+```bash
+# Run the update script manually
+/usr/local/bin/update-download-clients.sh
+
+# Or trigger via systemd
+systemctl start update-download-clients.service
+```
+
+### View Update Logs
+
+Check the update log to see update history:
+
+```bash
+# View recent update logs
+tail -n 50 /var/log/download-clients-update.log
+
+# Or view via journalctl
+journalctl -u update-download-clients.service -n 50
+```
+
+**Note**: The timer is set to run every Monday at 3:00 AM. The `Persistent=true` option ensures that if the container is off during the scheduled time, the update will run when the container starts next. The `RandomizedDelaySec` adds a random delay of up to 30 minutes to avoid system load spikes if you have multiple containers updating simultaneously.
+
+## Step 8: Configure pfSense Firewall Rules
 
 ### Update LAN Interface Rules
 
@@ -363,7 +522,7 @@ Configure pfSense to allow the ARR stack (on LAN) to communicate with download c
    - **Interface**: LAN
    - **Protocol**: TCP
    - **Source**: LAN Net (or specific IP: ArrStack VM `192.168.1.20`)
-   - **Destination**: Single host or alias → `192.168.2.20`
+   - **Destination**: Single host or alias → `192.168.3.20`
    - **Destination Port**: `8080, 8081` (qBittorrent and SABnzbd)
    - **Description**: Allow ARR stack to access download clients
    - **Save** and **Apply Changes**
@@ -376,7 +535,7 @@ Ensure VLAN 20 rules are configured:
    - **Block VLAN 20 to LAN**: Should exist (blocks download clients from initiating connections to LAN)
    - **Allow Internet Access**: Should exist (allows download clients to reach internet)
 
-## Step 8: Configure ARR Stack Integration
+## Step 9: Configure ARR Stack Integration
 
 ### Radarr Configuration
 
@@ -384,7 +543,7 @@ Ensure VLAN 20 rules are configured:
 
 2. **Settings → Download Clients → Add Client → qBittorrent**:
    - **Name**: `qBittorrent-VLAN20`
-   - **Host**: `192.168.2.20`
+   - **Host**: `192.168.3.20`
    - **Port**: `8080`
    - **Username**: (qBittorrent WebUI username)
    - **Password**: (qBittorrent WebUI password)
@@ -398,7 +557,7 @@ Ensure VLAN 20 rules are configured:
 
 2. **Settings → Download Clients → Add Client → qBittorrent**:
    - **Name**: `qBittorrent-VLAN20`
-   - **Host**: `192.168.2.20`
+   - **Host**: `192.168.3.20`
    - **Port**: `8080`
    - **Username**: (qBittorrent WebUI username)
    - **Password**: (qBittorrent WebUI password)
@@ -408,7 +567,7 @@ Ensure VLAN 20 rules are configured:
 
 3. **Settings → Download Clients → Add Client → SABnzbd**:
    - **Name**: `SABnzbd-VLAN20`
-   - **Host**: `192.168.2.20`
+   - **Host**: `192.168.3.20`
    - **Port**: `8081`
    - **API Key**: (from SABnzbd WebUI → Config → General)
    - **Category**: `sonarr` (optional, for organization)
@@ -421,27 +580,27 @@ Ensure VLAN 20 rules are configured:
 - **CPU**: 2 cores
 - **RAM**: 2GB
 - **Disk**: 32GB (container) + bind mounts for storage
-- **Network**: Static IP on VLAN 20 (192.168.2.20)
+- **Network**: Static IP on VLAN 20 (192.168.3.20)
 
 ### Recommended Configuration
 - **CPU**: 2-4 cores
 - **RAM**: 4GB
 - **Disk**: 64GB+ (container) + bind mounts for storage
-- **Network**: Static IP on VLAN 20 (192.168.2.20)
+- **Network**: Static IP on VLAN 20 (192.168.3.20)
 
 ### For Heavy Download Usage
 - **CPU**: 4 cores
 - **RAM**: 8GB
 - **Disk**: 128GB+ (container) + bind mounts for storage
-- **Network**: Static IP on VLAN 20 (192.168.2.20)
+- **Network**: Static IP on VLAN 20 (192.168.3.20)
 
 ## Network Configuration Details
 
 ### IP Assignment
-- **Container IP**: `192.168.2.20`
-- **Gateway**: `192.168.2.1` (pfSense VLAN 20 interface)
-- **Subnet**: `192.168.2.0/24`
-- **DNS**: `192.168.2.1` (pfSense) or `8.8.8.8` (Google DNS)
+- **Container IP**: `192.168.3.20`
+- **Gateway**: `192.168.3.1` (pfSense VLAN 20 interface)
+- **Subnet**: `192.168.3.0/24`
+- **DNS**: `192.168.3.1` (pfSense) or `8.8.8.8` (Google DNS)
 
 ### Port Requirements
 
@@ -474,7 +633,7 @@ Ensure VLAN 20 rules are configured:
 
 ### Network Issues
 - Verify IP configuration: `ip addr show`
-- Check gateway is reachable: `ping 192.168.2.1`
+- Check gateway is reachable: `ping 192.168.3.1`
 - Verify DNS resolution: `nslookup google.com`
 - Check VLAN tag is set to `20` in container network config
 - Verify pfSense VLAN 20 interface is configured
@@ -488,20 +647,26 @@ Ensure VLAN 20 rules are configured:
 ### qBittorrent Issues
 - Check service status: `systemctl status qbittorrent-nox`
 - Check logs: `journalctl -u qbittorrent-nox -n 50`
-- Verify WebUI is accessible: `curl http://192.168.2.20:8080`
+- **Can't find default password?** Check the logs for the randomly generated password:
+  ```bash
+  journalctl -u qbittorrent-nox | grep -i password
+  # Or view full startup logs
+  journalctl -u qbittorrent-nox -n 100
+  ```
+- Verify WebUI is accessible: `curl http://192.168.3.20:8080`
 - Check API is enabled in qBittorrent settings
 - Verify download paths are writable
 
 ### SABnzbd Issues
-- Check service status: `systemctl status sabnzbd`
-- Check logs: `journalctl -u sabnzbd -n 50`
-- Verify WebUI is accessible: `curl http://192.168.2.20:8081`
+- Check service status: `systemctl status sabnzbdplus`
+- Check logs: `journalctl -u sabnzbdplus -n 50`
+- Verify WebUI is accessible: `curl http://192.168.3.20:8081`
 - Check Python installation: `python3 --version`
 - Verify download paths are writable
 
 ### ARR Stack Cannot Connect
 - Verify pfSense firewall rule allows LAN → VLAN 20 on ports 8080 and 8081
-- Test connectivity from ArrStack VM: `curl http://192.168.2.20:8080`
+- Test connectivity from ArrStack VM: `curl http://192.168.3.20:8080`
 - Verify qBittorrent/SABnzbd credentials are correct
 - Check API is enabled in both applications
 - Verify API key is correct (for SABnzbd)
@@ -516,7 +681,7 @@ Ensure VLAN 20 rules are configured:
 
 1. **Container network connectivity**:
    ```bash
-   ping -c 4 192.168.2.1  # pfSense VLAN 20 gateway
+   ping -c 4 192.168.3.1  # pfSense VLAN 20 gateway
    ping -c 4 8.8.8.8      # Internet connectivity
    ```
 
@@ -527,18 +692,18 @@ Ensure VLAN 20 rules are configured:
    ```
 
 3. **qBittorrent WebUI accessible**:
-   - From LAN: `http://192.168.2.20:8080`
+   - From LAN: `http://192.168.3.20:8080`
    - Should prompt for login
 
 4. **SABnzbd WebUI accessible**:
-   - From LAN: `http://192.168.2.20:8081`
+   - From LAN: `http://192.168.3.20:8081`
    - Should show SABnzbd interface
 
 5. **API connectivity from ArrStack VM**:
    ```bash
    # From ArrStack VM (192.168.1.20)
-   curl http://192.168.2.20:8080/api/v2/app/version
-   curl http://192.168.2.20:8081/api?mode=version
+   curl http://192.168.3.20:8080/api/v2/app/version
+   curl http://192.168.3.20:8081/api?mode=version
    ```
 
 6. **ARR stack can add and test download clients**:
@@ -565,7 +730,7 @@ After the container is set up and applications are configured:
 
 ## Notes
 
-- The container IP address (192.168.2.20) is used to access both WebUIs and for ARR integration
+- The container IP address (192.168.3.20) is used to access both WebUIs and for ARR integration
 - Keep the container updated: `apt update && apt upgrade -y`
 - Consider setting up Proxmox backups for this container
 - Download clients are isolated on VLAN 20 and cannot initiate connections to LAN

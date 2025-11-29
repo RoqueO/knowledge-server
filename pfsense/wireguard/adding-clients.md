@@ -140,6 +140,43 @@ When adding a new client to tun_wg1:
 
 5. **Activate**: Click **Activate** to connect
 
+#### For macOS:
+
+1. **Install WireGuard**:
+   - **Option A**: Download from [wireguard.com](https://www.wireguard.com/install/)
+   - **Option B**: Install from Mac App Store (search for "WireGuard")
+   - Both options provide the same GUI application
+
+2. **Generate key pair**:
+   - Open WireGuard application
+   - Click **Add Tunnel** → **Add empty tunnel**
+   - Click **Generate** next to Private Key
+   - **Copy the Public Key** (shown below Private Key)
+
+3. **Configure tunnel**:
+   - **Name**: "Home VPN" or similar
+   - **Address**: `10.0.0.20/32` (your assigned IP)
+   - **DNS**: Optional - can set to your pfSense IP (192.168.1.1) or leave default
+
+4. **Add peer**:
+   - In the peer section, add:
+     - **Public Key**: tun_wg1's public key (from pfSense)
+     - **Endpoint**: `your.public.ip:51821`
+       - Format: `your.public.ip:51821`
+       - Example: `203.0.113.45:51821`
+     - **Allowed IPs**: Enter what you want to access
+       - **Full VPN**: `0.0.0.0/0` (route all traffic)
+       - **Home network only**: `192.168.1.0/24` (access LAN only)
+       - **Both**: `192.168.1.0/24, 10.0.0.16/28` (LAN + WireGuard network)
+     - **Persistent Keepalive**: `25` (should match pfSense setting)
+
+5. **Activate**: 
+   - Click the toggle switch or **Activate** button to connect
+   - Check status - should show handshake time and data transfer
+   - The WireGuard icon in the menu bar will indicate connection status
+
+**Note**: macOS also supports command-line WireGuard configuration (similar to Linux). See the Linux section for CLI instructions if you prefer that method.
+
 #### For Linux:
 
 1. **Install WireGuard**:
